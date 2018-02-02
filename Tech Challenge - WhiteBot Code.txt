@@ -1,0 +1,83 @@
+/*
+  WhiteBot - Tech Challenge - Techanical University Munich (TUM)
+  This code is developed to control linear motion of WhiteBot robot which is driven through DC 12V motor. DC motor is controlled by PWM configuration and ultrasonic sensor.
+
+  Hardware Required:
+    LaunchPad MSP432P401R
+    Ultrasonic Sensor (HC-SR04)
+
+*/
+
+//constant variable will not change
+const int Trigpin = 40; // trigger pin (P2.7)
+const int Ecopin = 39; // eco pin (P2.6)
+const int PWMpin = 38; // PWM signal generated (P2.4)
+const int DIRpin = 34; // motor direction (P2.3)
+int flag = 0;
+int value = 0;
+//const int LightPin = 32; LED attached (P3.5) ; to confirm signal from microprocessor
+const int DataSignal = 31; //signal from Microprocessor to start motor (P3.7)
+
+// variables subjected to change:
+int duration;
+float distance;
+
+void setup() {
+  // put your setup code here, to run once:
+  Serial.begin(9600); //initialize serial communication at 9600 bits per second
+  pinMode(PWMpin, OUTPUT); // Pin P2.4 is set as PWM output
+  pinMode(DIRpin, OUTPUT); // Pin P2.3 is set as direction pin for motor
+  pinMode(Trigpin, OUTPUT); // Pin P2.7 is set as trigger pin in order to generate pulse
+  pinMode(Ecopin, INPUT); // Pin P2.6 is set as eco pin in order to calculate time
+  //pinMode(LightPin, OUTPUT);  LED is connected to pin P3.5 with resistance
+  pinMode(DataSignal, INPUT); // Pin P3.7 is set as input to receive signal from microprocessor
+}
+
+void loop()
+{
+  digitalWrite(LightPin, LOW);
+  value = digitalRead(DataSignal); // command from microprocessor
+  while (1)
+  {
+    if (value == HIGH) //if Micro-controller receives HIGH signal from Microprocessor, then only motor will start.
+    {
+     // digitalWrite(LightPin, HIGH);   
+      digitalWrite(Trigpin, LOW);
+      delay(60);
+      digitalWrite(Trigpin, HIGH);
+      delay(60); // 60ms time delay
+      digitalWrite(Trigpin, LOW);
+      duration = pulseIn(Ecopin, HIGH); // measure the time in microsecond (us)
+      distance = duration / 58.2; // convert the time into a distance ; Centimeter unit
+      Serial.println(distance);
+
+      if (flag == 0)
+      {
+        if (distance >= 5 && distance <= 100 ) // total length of linear motion ; start motor
+        {
+          digitalWrite(DIRpin, HIGH); // forward motion of motor
+          analogWrite(PWMpin, 180);  // 80% duty cycle
+        }
+        if (distance > 100)  // to stop motor
+        {
+          analogWrite(PWMpin, 0); // motor brake 
+          delay(3000);  // to stop scanning 
+          flag = 1;
+        }
+      }
+      if (flag == 1)
+      {
+        if (distance > 5 && distance < 105) // total length of linear motion(100 cm) plus skidding distance (5 cm) travels by motor due to inertia; skidding also includes error by Ultrasonic sensor
+        {
+          digitalWrite(DIRpin, LOW); // reverse direction of motor
+          analogWrite(PWMpin, 180);
+        }
+        if (distance < 10) // Minimum distance(5 cm) plus skidding distance (5 cm) in order to stop motor at desired distance(15 cm) ; skidding also includes error by Ultrasonic sensor
+        {
+          analogWrite(PWMpin, 0); // to stop motor at origin 
+          value = 0;
+        }
+      }
+    }
+  }
+}

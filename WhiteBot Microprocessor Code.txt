@@ -1,0 +1,140 @@
+#!/bin/bash
+# WhiteBot 
+# v1.0 Demo day
+# v1.1 Fixes for documentation
+
+# It is assumed that the scanning device is connected
+mount /dev/sda1 debian		# Mounts the scanner
+
+# Defines how long the scanner USB will be disconnected
+duration=20
+
+# Initalize GPIOs
+echo in > /sys/class/gpio/gpio44/direction	# Button
+echo in > /sys/class/gpio/gpio47/direction	# Signal from MSP (not used)
+echo out > /sys/class/gpio/gpio48/direction	# LED
+echo out > /sys/class/gpio/gpio49/direction	# Signal to MSP (motor)
+
+echo 0 > /sys/class/gpio/gpio48/value		# Initialization
+echo 0 > /sys/class/gpio/gpio49/value		# of outputs
+
+while true; do 		# Can only be killed with kill or Ctrl+C
+	
+	button=false
+
+	# Wait for button to start program
+	echo "Now waiting for button"
+
+	while [ "$button" = "false" ]
+	do
+		button_value=$(</sys/class/gpio/gpio44/value)	
+
+		if [ "$button_value" = "1" ]
+		then
+			echo "Button pushed!"
+			button=true
+		fi
+	done
+
+	
+	# Clears latest_scan folder
+	cd ./latest_scan
+	previous_file=$(find IMAG*)
+	cd /media
+	rm_status=0
+	rm  /media/latest_scan/*
+	rm_status=$? 		# Checks the exit status of last command
+
+	if [ "$rm_status" = "0" ]
+	then
+		echo "Last file deleted succesfully!"
+	fi
+
+
+	# Unmounts scanner and deactivates USB
+	umount /dev/sda1
+	sleep 1
+	devmem2 0x47401c60 b 0x00
+	echo "Deactivating USB..."
+	sleep 1
+	echo "usb1" > /sys/bus/usb/drivers/usb/unbind
+
+
+	# Now scanning is ready to begin, so we also start the motor
+	echo 1 > /sys/class/gpio/gpio48/value   # Turns on scanner LED
+    echo 1 > /sys/class/gpio/gpio49/value   # Sends signal to motor to start
+
+
+	# Gives time for the entire surface to be scanned, based on $duration
+	for ((i=duration ; i>0 ; i--))
+	do
+	       	echo "$i seconds to reconnection..."
+	       	sleep 1
+	done
+
+	# Signal to motor can now be set to zero
+	echo 0 > /sys/class/gpio/gpio49/value
+
+
+	# Reconnects USB and remounts scanner
+	echo "usb1" > /sys/bus/usb/drivers/usb/bind
+	echo "USB reconnected!"
+	sleep 1
+	devmem2 0x47401c60 b 0x01
+	
+	sleep 3
+	remount_status=0
+	mount /dev/sda1 /media/debian
+	remount_status=$?
+	
+	if [ "$remount_status" = "0" ]
+        then
+		echo "Scanner remounted!"
+	fi
+	
+
+	# LED flashes off to indicate that scanner is reconnected	
+	echo 0 > /sys/class/gpio/gpio48/value
+	sleep 1
+	echo 1 > /sys/class/gpio/gpio48/value
+
+
+	# Copies latest image to local folders
+	echo "Now copying files..."
+	cd /media/debian/DCIM/100MEDIA
+	cp_status=0
+	cp $(ls -1t | head -1) /media/scanned_docs
+	cp_status=$?
+	echo "cp status $cp_status"
+	cp $(ls -1t | head -1) /media/latest_scan
+	cp_status=$(($cp_status+$?))
+	echo "cp status $cp_status"
+
+	if [ "$cp_status" = "0" ]
+        then
+                echo "Files copied successfully to local folders!"
+        fi
+
+		
+	# Copies latest image to dropbox folder
+	echo "Now uploading to dropbox..."
+	cd /Dropbox-Uploader
+	./dropbox_uploader.sh delete /latest_scan/$previous_file
+	upload_status=0
+	./dropbox_uploader.sh upload /media/latest_scan/*.JPG /latest_scan
+	upload_status=$?
+	./dropbox_uploader.sh upload /media/latest_scan/*.JPG /scanned_docs
+	upload_status=$(($upload_status+$?))	
+	
+	if [ "$upload_status" = "0" ]
+        then
+                echo "Files uploaded successfully to Dropbox!"
+        fi
+	
+	cd /media
+
+	# Process is ready, (program can start again), so LED switches off
+	echo 0 > /sys/class/gpio/gpio48/value
+	
+done #end of while loop
+
